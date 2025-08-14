@@ -31,7 +31,7 @@ export default function MultiUpload({ onComposed }: { onComposed?: (r: Result) =
       if (!res.ok) throw new Error(data.error || 'compose failed')
       setResult(data)
       onComposed?.(data)
-    } catch (e: any) {
+    } catch (e: unknown) {
       alert(e.message)
     } finally {
       setBusy(false)

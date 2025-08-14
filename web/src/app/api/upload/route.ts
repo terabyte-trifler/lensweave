@@ -21,11 +21,11 @@ async function pinataUploadBuffer(buf: Buffer, filename: string, jwt: string) {
   const res = await fetch('https://api.pinata.cloud/pinning/pinFileToIPFS', {
     method: 'POST',
     headers: { Authorization: `Bearer ${jwt}` },
-    body: fd as any,
+    body: fd as ,
   })
 
   const raw = await res.text()
-  let json: any = null
+  let json: unknown = null
   try { json = JSON.parse(raw) } catch { /* not JSON */ }
 
   if (!res.ok) {
@@ -70,7 +70,7 @@ export async function POST(req: NextRequest) {
       url: `ipfs://${cid}`,
       gateway: `${process.env.NEXT_PUBLIC_PINATA_GATEWAY || 'https://gateway.pinata.cloud/ipfs'}/${cid}`,
     })
-  } catch (e: any) {
+  } catch (e: unknown) {
     const msg = e?.message || 'upload failed'
     console.error('pinata upload error:', msg)
     return NextResponse.json({ error: msg }, { status: 500 })

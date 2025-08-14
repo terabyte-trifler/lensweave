@@ -9,7 +9,7 @@ export async function POST(req: NextRequest, context: { params: Promise<{ id: st
     if (!cid || !url) return NextResponse.json({ error: 'missing cid/url' }, { status: 400 })
     const s = finalizeSession(id, { cid, url })
     return NextResponse.json({ ok: true, session: s })
-  } catch (e: any) {
+  } catch (e: unknown) {
     return NextResponse.json({ error: e?.message || 'finalize failed' }, { status: 500 })
   }
 }

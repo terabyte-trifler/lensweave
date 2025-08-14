@@ -51,7 +51,7 @@ export default function MintPanel({ imageIpfsUri }: { imageIpfsUri?: string }) {
       if (!res.ok) throw new Error(data.error || 'Metadata build failed')
       setMetadataUri(data.uri)
       setSuccess('Metadata built successfully')
-    } catch (e: any) {
+    } catch (e: unknown) {
       setError(e?.message || 'Metadata build failed')
     } finally {
       setBuilding(false)
@@ -114,7 +114,7 @@ export default function MintPanel({ imageIpfsUri }: { imageIpfsUri?: string }) {
 
       setSuccess('Mint transaction sent!')
       router.push('/gallery')
-    } catch (e: any) {
+    } catch (e: unknown) {
       setError(e?.shortMessage || e?.message || 'Mint failed')
     }
   }

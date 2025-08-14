@@ -14,7 +14,7 @@ export default function SessionHome() {
       const data = await res.json()
       if (!res.ok) throw new Error(data.error || 'create failed')
       location.href = `/session/${data.session.id}`
-    } catch (e:any) {
+    } catch (e:unknown) {
       setError(e.message)
     } finally { setCreating(false) }
   }

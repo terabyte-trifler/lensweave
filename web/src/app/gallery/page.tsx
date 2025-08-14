@@ -41,7 +41,7 @@ export default function GalleryPage() {
         const data = await load()
         setItems(data.items || [])
         setPage(data.page || null)
-      } catch (e: any) {
+      } catch (e: unknown) {
         setError(e.message)
       } finally {
         setLoading(false)
@@ -56,7 +56,7 @@ export default function GalleryPage() {
       const data = await load(page.nextCursor)
       setItems(prev => [...prev, ...(data.items || [])])
       setPage(data.page || null)
-    } catch (e: any) {
+    } catch (e: unknown) {
       setError(e.message)
     } finally {
       setLoadingMore(false)

@@ -14,7 +14,7 @@ export async function POST(req: NextRequest) {
     }
     const { data } = await origin.post(`/remix/create`, payload)
     return NextResponse.json({ ok: true, remixId: data.id, data })
-  } catch (e: any) {
+  } catch (e: unknown) {
     const msg = e?.response?.data || e?.message || 'Remix create failed'
     return NextResponse.json({ error: msg }, { status: 500 })
   }

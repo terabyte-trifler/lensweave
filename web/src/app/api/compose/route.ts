@@ -33,11 +33,11 @@ async function pinataUploadBuffer(buf: Buffer, filename: string, jwt: string): P
   const res = await fetch('https://api.pinata.cloud/pinning/pinFileToIPFS', {
     method: 'POST',
     headers: { Authorization: `Bearer ${jwt}` },
-    body: fd as any,
+    body: fd as unknown,
   })
 
   const raw = await res.text()
-  let json: any = null
+  let json: unknown = null
   try { json = JSON.parse(raw) } catch { /* not JSON */ }
 
   if (!res.ok) {
@@ -139,7 +139,7 @@ export async function POST(req: NextRequest) {
       size: SIZE,
       count: normalized.length,
     })
-  } catch (e: any) {
+  } catch (e: unknown) {
     const msg = e?.message || 'compose failed'
     console.error('compose error:', msg)
     return NextResponse.json({ error: msg }, { status: 500 })

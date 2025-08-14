@@ -12,13 +12,6 @@ export default function Home() {
         <div className="space-y-6">
           {/* Logo */}
           <div className="flex items-center gap-3">
-            <Image
-              src="/logo.svg" // Replace with your logo path
-              alt="LensWeave Logo"
-              width={50}
-              height={50}
-              className="rounded-lg shadow"
-            />
             <span className="text-2xl font-bold tracking-tight text-indigo-700">
               LensWeave
             </span>
@@ -48,17 +41,6 @@ export default function Home() {
               View Gallery
             </Link>
           </div>
-        </div>
-
-        {/* Right Content */}
-        <div className="relative aspect-square rounded-2xl overflow-hidden shadow-lg">
-          <Image
-            src="/hero-sample.jpg" // Replace with your hero image path
-            alt="Sample Artwork"
-            fill
-            className="object-cover"
-          />
-          <div className="absolute inset-0 bg-gradient-to-t from-black/30 to-transparent" />
         </div>
       </section>
     </main>

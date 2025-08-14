@@ -39,7 +39,7 @@ export async function GET(req: Request) {
     )
 
     const latest = await client.getBlockNumber()
-    const deployBlock = toBigIntish(process.env.LENSWEAVE_DEPLOY_BLOCK || '0') ?? 0n
+    const deployBlock = toBigIntish(process.env.LENSWEAVE_DEPLOY_BLOCK || '0') ?? BigInt(0)
 
     let toBlock = cursorHex ? (toBigIntish(cursorHex) as bigint) : latest
     if (toBlock > latest) toBlock = latest
@@ -62,7 +62,7 @@ export async function GET(req: Request) {
 
     // Scan chain backwards in small chunks to fill gaps
     while (chunks < MAX_CHUNKS && items.length < TARGET_ITEMS && toBlock >= deployBlock) {
-      let fromBlock = toBlock >= span ? toBlock - span + 1n : deployBlock
+      let fromBlock = toBlock >= span ? toBlock - span + BigInt(1) : deployBlock
       if (fromBlock < deployBlock) fromBlock = deployBlock
 
       let logs: any[] = []
@@ -78,9 +78,9 @@ export async function GET(req: Request) {
         } catch (e: any) {
           const msg = String(e?.message || e)
           if (span > minSpan && /max|Maximum|exceed|range|limit|1000/i.test(msg)) {
-            span = span / 2n
+            span = span / BigInt(2)
             if (span < minSpan) span = minSpan
-            fromBlock = toBlock >= span ? toBlock - span + 1n : deployBlock
+            fromBlock = toBlock >= span ? toBlock - span + BigInt(1) : deployBlock
             if (fromBlock < deployBlock) fromBlock = deployBlock
             continue
           }
@@ -110,7 +110,10 @@ export async function GET(req: Request) {
         if (tokenUri) {
           try {
             const r = await fetch(ipfsToHttp(tokenUri))
-            if (r.ok) { const meta = await r.json().catch(() => null); image = ipfsToHttp(meta?.image) }
+            if (r.ok) {
+              const meta = await r.json().catch(() => null)
+              image = ipfsToHttp(meta?.image)
+            }
           } catch {}
         }
 
@@ -119,7 +122,7 @@ export async function GET(req: Request) {
           metadataUri: tokenUri,
           image,
           creators: (log.args.creators as string[]) || [],
-          sharesBps: (log.args.sharesBps as (bigint|number)[]).map(String),
+          sharesBps: (log.args.sharesBps as (bigint | number)[]).map(String),
           royaltyBps: String(log.args.royaltyBps as bigint | number),
           txHash: log.transactionHash,
           blockNumber: log.blockNumber?.toString(),
@@ -135,17 +138,23 @@ export async function GET(req: Request) {
         nextCursor = null
         break
       }
-      toBlock = fromBlock - 1n
+      toBlock = fromBlock - BigInt(1)
       nextCursor = '0x' + toBlock.toString(16)
       chunks++
     }
 
-    items.sort((a,b) => Number(b.blockNumber||0) - Number(a.blockNumber||0))
+    items.sort((a, b) => Number(b.blockNumber || 0) - Number(a.blockNumber || 0))
 
     return NextResponse.json({
       ok: true,
       items,
-      page: { nextCursor, latest: latest.toString(), span: span.toString(), chunksScanned: chunks, target: TARGET_ITEMS },
+      page: {
+        nextCursor,
+        latest: latest.toString(),
+        span: span.toString(),
+        chunksScanned: chunks,
+        target: TARGET_ITEMS,
+      },
       cacheCount: cacheItems.length,
     })
   } catch (e: any) {

@@ -44,9 +44,7 @@ export default function MintPanel({ imageIpfsUri }: { imageIpfsUri?: string }) {
           description: desc,
           imageUri: imageIpfsUri,
           originContentId: originContentId || undefined,
-          attributes: [
-            { trait_type: 'app', value: 'LensWeave' },
-          ],
+          attributes: [{ trait_type: 'app', value: 'LensWeave' }],
         }),
       })
       const data = await res.json()
@@ -64,40 +62,34 @@ export default function MintPanel({ imageIpfsUri }: { imageIpfsUri?: string }) {
     setError(null)
     setSuccess(null)
 
-    if (!isConnected) {
-      setError('Connect wallet')
-      return
-    }
-    if (chainId !== basecamp.id) {
-      setError('Switch to Basecamp network')
-      return
-    }
-    if (!metadataUri) {
-      setError('Build metadata first')
-      return
-    }
-    if (!CONTRACT) {
-      setError('Contract address missing (NEXT_PUBLIC_LENSWEAVE_ADDRESS)')
-      return
-    }
+    if (!isConnected) return setError('Connect wallet')
+    if (chainId !== basecamp.id) return setError('Switch to Basecamp network')
+    if (!metadataUri) return setError('Build metadata first')
+    if (!CONTRACT) return setError('Contract address missing (NEXT_PUBLIC_LENSWEAVE_ADDRESS)')
 
-    const creators = creatorsRaw.split(',')
+    // Parse creators
+    const creators = creatorsRaw
+      .split(/[,\s]+/)
       .map(s => s.trim())
       .filter(Boolean) as `0x${string}`[]
 
-    const shares = sharesRaw.split(',')
-      .map(s => Number(s.trim()))
-      .filter(n => !Number.isNaN(n))
+    // Parse shares as bigint[]
+    const sharesNum = sharesRaw
+      .split(/[,\s]+/)
+      .map(s => s.trim())
+      .filter(Boolean)
+      .map(s => Number(s))
 
-    if (!creators.length || creators.length !== shares.length) {
-      setError('Creators/shares mismatch')
-      return
-    }
-    const sum = shares.reduce((a, b) => a + b, 0)
-    if (sum !== 10_000) {
-      setError('Shares must sum to 10000 (basis points)')
-      return
-    }
+    if (sharesNum.some(n => Number.isNaN(n) || !Number.isFinite(n) || n < 0))
+      return setError('Shares must be non-negative integers')
+
+    const sharesBps = sharesNum.map(n => BigInt(Math.trunc(n))) as readonly bigint[]
+
+    if (!creators.length || creators.length !== sharesBps.length)
+      return setError('Creators/shares mismatch (counts differ)')
+
+    const sum = sharesNum.reduce((a, b) => a + b, 0)
+    if (sum !== 10_000) return setError('Shares must sum to 10000 (basis points)')
 
     try {
       const to = address as `0x${string}`
@@ -105,10 +97,11 @@ export default function MintPanel({ imageIpfsUri }: { imageIpfsUri?: string }) {
         address: CONTRACT,
         abi: LensWeaveCollectiveABI,
         functionName: 'mintCollective',
-        args: [metadataUri, creators, shares, BigInt(royaltyBps), to],
+        // args: [string uri, address[] creators, uint96[] sharesBps, uint96 royaltyBps, address to]
+        args: [metadataUri, creators as readonly `0x${string}`[], sharesBps, BigInt(royaltyBps), to],
       })
 
-      // Tell the server to record it immediately for the on-chain gallery cache
+      // Notify server so gallery shows it instantly
       try {
         await fetch('/api/gallery/record', {
           method: 'POST',
@@ -116,11 +109,10 @@ export default function MintPanel({ imageIpfsUri }: { imageIpfsUri?: string }) {
           body: JSON.stringify({ txHash }),
         })
       } catch {
-        // Non-fatal: gallery will still backfill from chain logs
+        /* non-fatal */
       }
 
       setSuccess('Mint transaction sent!')
-      // Send user to gallery so they see it right away
       router.push('/gallery')
     } catch (e: any) {
       setError(e?.shortMessage || e?.message || 'Mint failed')
@@ -141,11 +133,11 @@ export default function MintPanel({ imageIpfsUri }: { imageIpfsUri?: string }) {
         <label className="text-sm">Origin Content ID (optional)</label>
         <input className="border rounded p-2" placeholder="origin_..." value={originContentId} onChange={e=>setOriginContentId(e.target.value)} />
 
-        <label className="text-sm">Creators (comma-separated)</label>
+        <label className="text-sm">Creators (comma or space separated)</label>
         <input className="border rounded p-2" placeholder="0xabc...,0xdef..." value={creatorsRaw} onChange={e=>setCreatorsRaw(e.target.value)} />
 
         <label className="text-sm">Shares in bps (sum 10000)</label>
-        <input className="border rounded p-2" placeholder="5000,5000" value={sharesRaw} onChange={e=>setSharesRaw(e.target.value)} />
+        <input className="border rounded p-2" placeholder="5000, 5000" value={sharesRaw} onChange={e=>setSharesRaw(e.target.value)} />
 
         <label className="text-sm">Royalty (bps)</label>
         <input className="border rounded p-2" type="number" value={royaltyBps} onChange={e=>setRoyaltyBps(Number(e.target.value))} />

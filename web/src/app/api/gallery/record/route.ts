@@ -44,7 +44,7 @@ export async function POST(req: NextRequest) {
     const decoded = receipt.logs.flatMap((log) => {
       try {
         const d = decodeEventLog({
-          abi: LensWeaveCollectiveABI as const,
+          abi: LensWeaveCollectiveABI,
           data: log.data,
           topics: log.topics,
         })
@@ -75,7 +75,7 @@ export async function POST(req: NextRequest) {
     if (!tokenUri) {
       tokenUri = (await client.readContract({
         address: CONTRACT,
-        abi: LensWeaveCollectiveABI as const,
+        abi: LensWeaveCollectiveABI,
         functionName: 'tokenURI',
         args: [ev.args.tokenId],
       })) as string

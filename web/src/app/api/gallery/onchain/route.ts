@@ -1,3 +1,4 @@
+// web/src/app/api/gallery/onchain/route.ts
 export const runtime = 'nodejs'
 
 import { NextResponse } from 'next/server'
@@ -6,9 +7,26 @@ import { basecamp } from '@/lib/chain'
 import { LensWeaveCollectiveABI } from '@/abi/LensWeaveCollective'
 import { listGalleryItems, upsertGalleryItem } from '@/lib/galleryCache'
 
+type Hex = `0x${string}`
+
+type MintedArgs = {
+  tokenId: bigint
+  uri: string
+  creators: readonly `0x${string}`[]
+  sharesBps: readonly bigint[]
+  royaltyBps: bigint
+}
+
+type MintedLog = {
+  args: MintedArgs
+  transactionHash: Hex
+  blockNumber?: bigint
+}
+
 const CONTRACT = process.env.NEXT_PUBLIC_LENSWEAVE_ADDRESS as `0x${string}`
 const RPC = process.env.NEXT_PUBLIC_BASECAMP_RPC as string
-const GATEWAY = process.env.NEXT_PUBLIC_PINATA_GATEWAY || 'https://gateway.pinata.cloud/ipfs'
+const GATEWAY =
+  process.env.NEXT_PUBLIC_PINATA_GATEWAY || 'https://gateway.pinata.cloud/ipfs'
 
 function ipfsToHttp(u?: string) {
   if (!u) return ''
@@ -27,15 +45,16 @@ export async function GET(req: Request) {
     if (!CONTRACT || !RPC) {
       return NextResponse.json(
         { error: 'Missing NEXT_PUBLIC_LENSWEAVE_ADDRESS or NEXT_PUBLIC_BASECAMP_RPC' },
-        { status: 500 }
+        { status: 500 },
       )
     }
+
     const url = new URL(req.url)
     const cursorHex = url.searchParams.get('cursor') ?? undefined
 
     const client = createPublicClient({ chain: basecamp, transport: http(RPC) })
     const mintedEvent = parseAbiItem(
-      'event Minted(uint256 indexed tokenId, string uri, address[] creators, uint96[] sharesBps, uint96 royaltyBps)'
+      'event Minted(uint256 indexed tokenId, string uri, address[] creators, uint96[] sharesBps, uint96 royaltyBps)',
     )
 
     const latest = await client.getBlockNumber()
@@ -54,8 +73,17 @@ export async function GET(req: Request) {
 
     // Start with cached items for instant UX
     const cacheItems = listGalleryItems()
-    const seen = new Set(cacheItems.map(i => i.tokenId))
-    const items = [...cacheItems] as any[]
+    const seen = new Set(cacheItems.map((i) => i.tokenId))
+    const items: Array<{
+      tokenId: string
+      metadataUri: string
+      image: string
+      creators: string[]
+      sharesBps: string[]
+      royaltyBps: string
+      txHash: Hex
+      blockNumber?: string
+    }> = [...cacheItems]
 
     let chunks = 0
     let nextCursor: string | null = null
@@ -65,18 +93,23 @@ export async function GET(req: Request) {
       let fromBlock = toBlock >= span ? toBlock - span + BigInt(1) : deployBlock
       if (fromBlock < deployBlock) fromBlock = deployBlock
 
-      let logs: any[] = []
+      // Pull logs for this chunk, shrinking span if RPC yells about range limits
+      let logs: ReadonlyArray<MintedLog> = []
+      // eslint-disable-next-line no-constant-condition
       while (true) {
         try {
-          logs = await client.getLogs({
+          const got = await client.getLogs({
             address: CONTRACT,
             event: mintedEvent,
             fromBlock,
             toBlock,
           })
+          // Viem types this by event signature; make a safe readonly cast
+          logs = got as unknown as ReadonlyArray<MintedLog>
           break
-        } catch (e: any) {
-          const msg = String(e?.message || e)
+        } catch (e: unknown) {
+          const msg = e instanceof Error ? e.message : String(e)
+          // common provider limits: "exceeds", "maximum", "1000 blocks", etc.
           if (span > minSpan && /max|Maximum|exceed|range|limit|1000/i.test(msg)) {
             span = span / BigInt(2)
             if (span < minSpan) span = minSpan
@@ -84,17 +117,21 @@ export async function GET(req: Request) {
             if (fromBlock < deployBlock) fromBlock = deployBlock
             continue
           }
+          // On other failures, just skip this window
           logs = []
           break
         }
       }
 
+      // Build items from logs
       for (const log of logs) {
-        const tokenId = (log.args.tokenId as bigint).toString()
+        const tokenId = log.args.tokenId.toString()
         if (seen.has(tokenId)) continue
-        const uriFromEvent = (log.args.uri as string) || ''
+
+        const uriFromEvent = log.args.uri || ''
         let tokenUri = uriFromEvent
 
+        // Fallback: read from tokenURI() if event didn't include it
         if (!tokenUri) {
           try {
             tokenUri = (await client.readContract({
@@ -103,34 +140,44 @@ export async function GET(req: Request) {
               functionName: 'tokenURI',
               args: [BigInt(tokenId)],
             })) as string
-          } catch {}
+          } catch {
+            // ignore
+          }
         }
 
+        // Try to read image from metadata JSON
         let image = ''
         if (tokenUri) {
           try {
             const r = await fetch(ipfsToHttp(tokenUri))
             if (r.ok) {
-              const meta = await r.json().catch(() => null)
+              const meta = (await r.json().catch(() => null)) as { image?: string } | null
               image = ipfsToHttp(meta?.image)
             }
-          } catch {}
+          } catch {
+            // ignore per-item fetch errors
+          }
         }
+
+        const creators = Array.from(log.args.creators).map((a) => String(a))
+        const sharesBps = Array.from(log.args.sharesBps).map((b) => String(b))
+        const royaltyBps = String(log.args.royaltyBps)
 
         const item = {
           tokenId,
           metadataUri: tokenUri,
           image,
-          creators: (log.args.creators as string[]) || [],
-          sharesBps: (log.args.sharesBps as (bigint | number)[]).map(String),
-          royaltyBps: String(log.args.royaltyBps as bigint | number),
+          creators,
+          sharesBps,
+          royaltyBps,
           txHash: log.transactionHash,
           blockNumber: log.blockNumber?.toString(),
         }
+
         items.push(item)
         seen.add(tokenId)
-        // also keep cache warm
         upsertGalleryItem(item)
+
         if (items.length >= TARGET_ITEMS) break
       }
 
@@ -157,7 +204,8 @@ export async function GET(req: Request) {
       },
       cacheCount: cacheItems.length,
     })
-  } catch (e: any) {
-    return NextResponse.json({ error: e?.message || 'onchain gallery failed' }, { status: 500 })
+  } catch (e: unknown) {
+    const msg = e instanceof Error ? e.message : String(e)
+    return NextResponse.json({ error: msg || 'onchain gallery failed' }, { status: 500 })
   }
 }

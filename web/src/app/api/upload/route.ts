@@ -3,76 +3,69 @@ export const runtime = 'nodejs'
 
 import { NextRequest, NextResponse } from 'next/server'
 
-/** Read and sanity-check the Pinata JWT from env */
-function getPinataJwt() {
+/**
+ * POST /api/upload
+ * form-data: file=<File>
+ * env: PINATA_JWT=eyJ...  (Pinata JWT)
+ * returns: { cid, url }
+ */
+
+function getPinataJwt(): string {
   const raw = (process.env.PINATA_JWT || '').trim()
   if (!raw) throw new Error('PINATA_JWT missing on server')
-  if (!raw.startsWith('eyJ')) {
-    throw new Error('PINATA_JWT does not look like a JWT (should start with "eyJ")')
-  }
+  if (!raw.startsWith('eyJ')) throw new Error('PINATA_JWT is not a JWT (should start with "eyJ")')
   return raw
-}
-
-/** Upload a Buffer to pinFileToIPFS and return a CID */
-async function pinataUploadBuffer(buf: Buffer, filename: string, jwt: string) {
-  const fd = new FormData()
-  fd.append('file', new Blob([buf], { type: 'application/octet-stream' }), filename || 'upload')
-
-  const res = await fetch('https://api.pinata.cloud/pinning/pinFileToIPFS', {
-    method: 'POST',
-    headers: { Authorization: `Bearer ${jwt}` },
-    body: fd as ,
-  })
-
-  const raw = await res.text()
-  let json: unknown = null
-  try { json = JSON.parse(raw) } catch { /* not JSON */ }
-
-  if (!res.ok) {
-    const details = json ?? raw
-    throw new Error(`Pinata upload failed (status ${res.status}): ${typeof details === 'string' ? details : JSON.stringify(details)}`)
-  }
-
-  const cid = (json || {}).IpfsHash as string
-  if (!cid) throw new Error(`Pinata response missing IpfsHash: ${raw}`)
-  return cid
 }
 
 export async function POST(req: NextRequest) {
   try {
     const jwt = getPinataJwt()
 
+    // 1) Read form-data and validate file
     const form = await req.formData()
-
-    // Accept either single "file" or first item of "files"
-    let file = form.get('file')
-    if (!file) {
-      const many = form.getAll('files')
-      if (many?.length) file = many[0] as File
-    }
-    if (!file || !(file instanceof File)) {
-      return NextResponse.json({ error: 'No file provided. Send field "file" or "files".' }, { status: 400 })
+    const f = form.get('file')
+    if (!f || !(f instanceof File)) {
+      return NextResponse.json({ error: 'No file provided (form field "file")' }, { status: 400 })
     }
 
-    // Basic guardrails: ~20 MB max (tune as you like)
-    const size = (file as File).size ?? 0
-    const MAX = 20 * 1024 * 1024
-    if (size > MAX) {
-      return NextResponse.json({ error: `File too large (${size} bytes). Max ${MAX} bytes.` }, { status: 413 })
-    }
+    // 2) Build a new multipart body for Pinata
+    // Pinata requires its own FormData with the file field name "file"
+    const fd = new FormData()
+    // You can pass through the original filename & type
+    fd.append('file', f, (f as File).name)
 
-    const filename = (file as File).name || 'upload'
-    const buf = Buffer.from(await (file as File).arrayBuffer())
-    const cid = await pinataUploadBuffer(buf, filename, jwt)
+    // (optional) attach pinataMetadata / pinataOptions here if you want
+    // fd.append('pinataMetadata', new Blob([JSON.stringify({ name: 'lensweave-upload' })], { type: 'application/json' }))
+    // fd.append('pinataOptions', new Blob([JSON.stringify({ cidVersion: 1 })], { type: 'application/json' }))
 
-    return NextResponse.json({
-      cid,
-      url: `ipfs://${cid}`,
-      gateway: `${process.env.NEXT_PUBLIC_PINATA_GATEWAY || 'https://gateway.pinata.cloud/ipfs'}/${cid}`,
+    // 3) Upload to Pinata
+    const res = await fetch('https://api.pinata.cloud/pinning/pinFileToIPFS', {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${jwt}`,
+        // DO NOT set Content-Type manually; fetch will set the correct multipart boundary
+      },
+      body: fd, // <-- this is the fix (no stray cast)
     })
+
+    const rawText = await res.text()
+    // Pinata success: { IpfsHash, PinSize, Timestamp }
+    type PinataFileResp = { IpfsHash?: string; PinSize?: number; Timestamp?: string }
+    let json: PinataFileResp | null = null
+    try { json = JSON.parse(rawText) as PinataFileResp } catch { /* keep rawText for error reporting */ }
+
+    if (!res.ok || !json || !json.IpfsHash) {
+      const details = json ?? rawText
+      return NextResponse.json(
+        { error: `pinFileToIPFS failed (status ${res.status}): ${typeof details === 'string' ? details : JSON.stringify(details)}` },
+        { status: 500 }
+      )
+    }
+
+    const cid = json.IpfsHash
+    return NextResponse.json({ cid, url: `ipfs://${cid}` })
   } catch (e: unknown) {
-    const msg = e?.message || 'upload failed'
-    console.error('pinata upload error:', msg)
+    const msg = e instanceof Error ? e.message : String(e)
     return NextResponse.json({ error: msg }, { status: 500 })
   }
 }

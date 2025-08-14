@@ -1,91 +1,30 @@
-import axios from 'axios'
+// src/lib/originClient.ts
+import axios, { type AxiosInstance } from 'axios'
 
-const base = process.env.NEXT_PUBLIC_ORIGIN_API_BASE!
-const key  = process.env.ORIGIN_API_KEY!
+const ORIGIN_BASE =
+  process.env.NEXT_PUBLIC_ORIGIN_API_BASE?.trim() || 'https://api.origin.camp/v1'
+const ORIGIN_API_KEY = process.env.ORIGIN_API_KEY?.trim() || ''
 
-type Creator = { wallet: string; shareBps: number }
+// Create a typed axios instance
+export const origin: AxiosInstance = axios.create({
+  baseURL: ORIGIN_BASE,
+  headers: {
+    'Content-Type': 'application/json',
+    ...(ORIGIN_API_KEY ? { Authorization: `Bearer ${ORIGIN_API_KEY}` } : {}),
+  },
+})
 
-const rest = axios.create({ baseURL: base, headers: { Authorization: `Bearer ${key}` } })
-
-let sdk: any = null
-try {
-  // Prefer SDK if present
-  // eslint-disable-next-line @typescript-eslint/no-var-requires
-  const mod = require('@campnetwork/origin')
-  sdk = mod?.default ?? mod
-} catch (_) {
-  sdk = null
-}
-
-export async function originRegisterImage(args: {
-  title: string
-  mediaCid: string
-  mediaUri: string
-  creators?: Creator[]
-}) {
-  if (sdk?.Onboard?.register) {
-    return await sdk.Onboard.register({
-      type: 'IMAGE',
-      title: args.title,
-      media: { cid: args.mediaCid, uri: args.mediaUri, storage: 'ipfs' },
-      creators: args.creators ?? [],
-      apiKey: key,
-    })
-  }
-  const { data } = await rest.post('/onboard/register', {
-    type: 'IMAGE',
-    title: args.title,
-    media: { cid: args.mediaCid, uri: args.mediaUri, storage: 'ipfs' },
-    creators: args.creators ?? [],
-  })
-  return data
-}
-
-export async function originGrantPermission(args: {
-  contentId: string
-  policy: Record<string, any>
-}) {
-  if (sdk?.Permission?.grant) {
-    return await sdk.Permission.grant({ ...args, apiKey: key })
-  }
-  const { data } = await rest.post('/permission/grant', args)
-  return data
-}
-
-export async function originCreateRemix(args: {
-  parentId: string
-  title: string
-  mediaCid: string
-  mediaUri: string
-  creators: Creator[]
-}) {
-  if (sdk?.Remix?.create) {
-    return await sdk.Remix.create({
-      type: 'IMAGE',
-      title: args.title,
-      parentId: args.parentId,
-      media: { cid: args.mediaCid, uri: args.mediaUri, storage: 'ipfs' },
-      creators: args.creators,
-      apiKey: key,
-    })
-  }
-  const { data } = await rest.post('/remix/create', {
-    type: 'IMAGE',
-    title: args.title,
-    parentId: args.parentId,
-    media: { cid: args.mediaCid, uri: args.mediaUri, storage: 'ipfs' },
-    creators: args.creators,
-  })
-  return data
-}
-
-export async function originSetMonetization(args: {
-  contentId: string
-  splits: Creator[] // { wallet, shareBps }
-}) {
-  if (sdk?.Monetize?.splits) {
-    return await sdk.Monetize.splits({ ...args, apiKey: key })
-  }
-  const { data } = await rest.post('/monetize/splits', args)
-  return data
-}
+// (Optional) response interceptor with explicit types
+origin.interceptors.response.use(
+  (resp) => resp,
+  (error) => {
+    // Keep types explicit without `any`
+    const status = error?.response?.status as number | undefined
+    const data = error?.response?.data as unknown
+    const message =
+      typeof data === 'string' ? data : JSON.stringify(data ?? { error: 'Unknown Origin error' })
+    return Promise.reject(
+      new Error(`Origin API${status ? ` ${status}` : ''}: ${message}`),
+    )
+  },
+)

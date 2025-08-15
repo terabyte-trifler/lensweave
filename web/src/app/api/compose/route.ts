@@ -68,10 +68,10 @@ function bufferToArrayBuffer(buf: Buffer): ArrayBuffer {
   
     // Either Blob or File is fine; TS-friendly on Vercel:
     // Option A: Blob
-    // fd.append('file', new Blob([ab], { type: 'image/png' }), filename || 'image.png')
+     fd.append('file', new Blob([ab], { type: 'image/png' }), filename || 'image.png')
   
     // Option B: File (also TS-friendly)
-    fd.append('file', new File([ab], filename || 'image.png', { type: 'image/png' }))
+    //fd.append('file', new File([ab], filename || 'image.png', { type: 'image/png' }))
   
     const res = await fetch('https://api.pinata.cloud/pinning/pinFileToIPFS', {
       method: 'POST',

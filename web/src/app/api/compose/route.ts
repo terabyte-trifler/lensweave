@@ -5,15 +5,9 @@ import { NextRequest, NextResponse } from 'next/server'
 import sharp from 'sharp'
 
 /**
- * Blends 2–6 images into a single 1024×1024 PNG using soft radial masks
- * and rotating blend modes, then uploads the result to Pinata (IPFS).
- *
- * POST multipart/form-data:
- *   files: File[]  (2–6 images)
- *
- * Env (Server):
- *   PINATA_JWT=eyJ...  (Pinata JWT token)
- *   NEXT_PUBLIC_PINATA_GATEWAY=https://gateway.pinata.cloud/ipfs (optional)
+ * Blend 2–6 images into a single 1024×1024 PNG and upload to Pinata (IPFS).
+ * POST multipart/form-data: files[]=<File> (2–6 images)
+ * Env: PINATA_JWT=eyJ..., NEXT_PUBLIC_PINATA_GATEWAY=...
  */
 
 const MAX_IMAGES = 6
@@ -26,22 +20,26 @@ function getPinataJwt(): string {
   return raw
 }
 
-/** Normalize to a view-only Uint8Array (safe for Blob/FormData & strict TS) */
-function toUint8View(input: Uint8Array | ArrayBuffer): Uint8Array {
-  return input instanceof Uint8Array
-    ? new Uint8Array(input.buffer, input.byteOffset, input.byteLength) // exact window
-    : new Uint8Array(input) // full buffer
+/** Make a *fresh* ArrayBuffer copy so TS knows it's not a SharedArrayBuffer */
+function cloneToArrayBuffer(u8: Uint8Array): ArrayBuffer {
+  const ab = new ArrayBuffer(u8.byteLength)
+  new Uint8Array(ab).set(u8)
+  return ab
 }
 
-/** Upload a PNG buffer to Pinata and return CID (uses Blob + Uint8Array) */
+/** Upload a PNG to Pinata and return the CID */
 async function pinataUploadBuffer(
   buf: Uint8Array | ArrayBuffer,
   filename: string,
   jwt: string
 ): Promise<string> {
-  const u8 = toUint8View(buf)
+  // Normalize to Uint8Array, then clone into a fresh ArrayBuffer
+  const u8 = buf instanceof Uint8Array ? u8View(buf) : new Uint8Array(buf)
+  const ab = cloneToArrayBuffer(u8)
+
   const fd = new FormData()
-  fd.append('file', new Blob([u8], { type: 'image/png' }), filename || 'image.png')
+  // Use Blob with a *plain* ArrayBuffer to satisfy Vercel’s DOM typings
+  fd.append('file', new Blob([ab], { type: 'image/png' }), filename || 'image.png')
 
   const res = await fetch('https://api.pinata.cloud/pinning/pinFileToIPFS', {
     method: 'POST',
@@ -50,14 +48,19 @@ async function pinataUploadBuffer(
   })
 
   const raw = await res.text()
-  type PinataFileResp = { IpfsHash?: string; PinSize?: number; Timestamp?: string }
-  let json: PinataFileResp | null = null
-  try { json = JSON.parse(raw) as PinataFileResp } catch { /* raw not JSON */ }
+  type PinataResp = { IpfsHash?: string; PinSize?: number; Timestamp?: string }
+  let json: PinataResp | null = null
+  try { json = JSON.parse(raw) as PinataResp } catch { /* raw not JSON */ }
 
   if (!res.ok || !json?.IpfsHash) {
     throw new Error(`pinFileToIPFS failed (${res.status}): ${raw}`)
   }
   return json.IpfsHash
+}
+
+/** Exact windowed view of a Uint8Array (no extra bytes) */
+function u8View(input: Uint8Array): Uint8Array {
+  return new Uint8Array(input.buffer, input.byteOffset, input.byteLength)
 }
 
 /** Soft radial mask SVG used for compositing */

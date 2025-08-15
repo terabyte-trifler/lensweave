@@ -40,6 +40,18 @@ function toBigIntish(v?: string | number): bigint | undefined {
   return BigInt(s)
 }
 
+// The strict item shape we return from this API
+type StrictItem = {
+  tokenId: string
+  metadataUri: string
+  image: string
+  creators: string[]
+  sharesBps: string[]
+  royaltyBps: string
+  txHash: Hex
+  blockNumber?: string
+}
+
 export async function GET(req: Request) {
   try {
     if (!CONTRACT || !RPC) {
@@ -71,19 +83,21 @@ export async function GET(req: Request) {
     let span = BigInt(Math.max(1, Math.min(1000, START_CHUNK)))
     const minSpan = BigInt(Math.max(1, Math.min(1000, MIN_CHUNK)))
 
-    // Start with cached items for instant UX
+    // Seed with cached items, but normalize into the strict shape (txHash required)
     const cacheItems = listGalleryItems()
     const seen = new Set(cacheItems.map((i) => i.tokenId))
-    const items: Array<{
-      tokenId: string
-      metadataUri: string
-      image: string
-      creators: string[]
-      sharesBps: string[]
-      royaltyBps: string
-      txHash: Hex
-      blockNumber?: string
-    }> = [...cacheItems]
+
+    const items: StrictItem[] = cacheItems.map((i) => ({
+      tokenId: i.tokenId,
+      metadataUri: i.metadataUri || '',
+      image: i.image || '',
+      creators: Array.isArray(i.creators) ? i.creators.map(String) : [],
+      sharesBps: Array.isArray(i.sharesBps) ? i.sharesBps.map(String) : [],
+      royaltyBps: i.royaltyBps ? String(i.royaltyBps) : '',
+      // Supply a safe default if cache didn’t store a txHash
+      txHash: (i.txHash || '0x') as Hex,
+      blockNumber: i.blockNumber,
+    }))
 
     let chunks = 0
     let nextCursor: string | null = null
@@ -93,7 +107,6 @@ export async function GET(req: Request) {
       let fromBlock = toBlock >= span ? toBlock - span + BigInt(1) : deployBlock
       if (fromBlock < deployBlock) fromBlock = deployBlock
 
-      // Pull logs for this chunk, shrinking span if RPC yells about range limits
       let logs: ReadonlyArray<MintedLog> = []
       // eslint-disable-next-line no-constant-condition
       while (true) {
@@ -104,12 +117,10 @@ export async function GET(req: Request) {
             fromBlock,
             toBlock,
           })
-          // Viem types this by event signature; make a safe readonly cast
           logs = got as unknown as ReadonlyArray<MintedLog>
           break
-        } catch (e: unknown) {
+        } catch (e) {
           const msg = e instanceof Error ? e.message : String(e)
-          // common provider limits: "exceeds", "maximum", "1000 blocks", etc.
           if (span > minSpan && /max|Maximum|exceed|range|limit|1000/i.test(msg)) {
             span = span / BigInt(2)
             if (span < minSpan) span = minSpan
@@ -117,13 +128,11 @@ export async function GET(req: Request) {
             if (fromBlock < deployBlock) fromBlock = deployBlock
             continue
           }
-          // On other failures, just skip this window
           logs = []
           break
         }
       }
 
-      // Build items from logs
       for (const log of logs) {
         const tokenId = log.args.tokenId.toString()
         if (seen.has(tokenId)) continue
@@ -131,7 +140,6 @@ export async function GET(req: Request) {
         const uriFromEvent = log.args.uri || ''
         let tokenUri = uriFromEvent
 
-        // Fallback: read from tokenURI() if event didn't include it
         if (!tokenUri) {
           try {
             tokenUri = (await client.readContract({
@@ -155,7 +163,7 @@ export async function GET(req: Request) {
               image = ipfsToHttp(meta?.image)
             }
           } catch {
-            // ignore per-item fetch errors
+            // ignore
           }
         }
 
@@ -163,7 +171,7 @@ export async function GET(req: Request) {
         const sharesBps = Array.from(log.args.sharesBps).map((b) => String(b))
         const royaltyBps = String(log.args.royaltyBps)
 
-        const item = {
+        const item: StrictItem = {
           tokenId,
           metadataUri: tokenUri,
           image,
@@ -204,7 +212,7 @@ export async function GET(req: Request) {
       },
       cacheCount: cacheItems.length,
     })
-  } catch (e: unknown) {
+  } catch (e) {
     const msg = e instanceof Error ? e.message : String(e)
     return NextResponse.json({ error: msg || 'onchain gallery failed' }, { status: 500 })
   }

@@ -26,7 +26,7 @@ function getPinataJwt(): string {
   return raw
 }
 
-async function pinataUploadBuffer(buf: Buffer, filename: string, jwt: string): Promise<string> {
+/*async function pinataUploadBuffer(buf: Buffer, filename: string, jwt: string): Promise<string> {
   const fd = new FormData()
   fd.append('file', new Blob([buf], { type: 'image/png' }), filename || 'image.png')
 
@@ -38,7 +38,7 @@ async function pinataUploadBuffer(buf: Buffer, filename: string, jwt: string): P
 
   const raw = await res.text()
   let json: unknown = null
-  try { json = JSON.parse(raw) } catch { /* not JSON */ }
+  try { json = JSON.parse(raw) } catch { }
 
   if (!res.ok) {
     const details = json ?? raw
@@ -52,7 +52,44 @@ async function pinataUploadBuffer(buf: Buffer, filename: string, jwt: string): P
   const cid = (json || {}).IpfsHash as string
   if (!cid) throw new Error(`Pinata response missing IpfsHash: ${raw}`)
   return cid
-}
+} */
+
+
+// web/src/app/api/compose/route.ts (excerpt)
+
+function bufferToArrayBuffer(buf: Buffer): ArrayBuffer {
+    // Respect the view window (byteOffset/byteLength) so we don't send extra bytes
+    return buf.buffer.slice(buf.byteOffset, buf.byteOffset + buf.byteLength)
+  }
+  
+  async function pinataUploadBuffer(buf: Buffer, filename: string, jwt: string): Promise<string> {
+    const fd = new FormData()
+    const ab = bufferToArrayBuffer(buf)
+  
+    // Either Blob or File is fine; TS-friendly on Vercel:
+    // Option A: Blob
+    // fd.append('file', new Blob([ab], { type: 'image/png' }), filename || 'image.png')
+  
+    // Option B: File (also TS-friendly)
+    fd.append('file', new File([ab], filename || 'image.png', { type: 'image/png' }))
+  
+    const res = await fetch('https://api.pinata.cloud/pinning/pinFileToIPFS', {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${jwt}` },
+      body: fd,
+    })
+  
+    const rawText = await res.text()
+    type PinataFileResp = { IpfsHash?: string; PinSize?: number; Timestamp?: string }
+    let json: PinataFileResp | null = null
+    try { json = JSON.parse(rawText) as PinataFileResp } catch {}
+  
+    if (!res.ok || !json?.IpfsHash) {
+      throw new Error(`pinFileToIPFS failed (${res.status}): ${rawText}`)
+    }
+    return json.IpfsHash
+  }
+  
 
 // Soft radial mask SVG used for compositing
 function radialMaskSVG(size: number, offsetPct = 0) {

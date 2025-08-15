@@ -26,22 +26,22 @@ function getPinataJwt(): string {
   return raw
 }
 
-/** Convert Node Buffer/Uint8Array to ArrayBuffer for Blob/FormData typing */
-function toArrayBuffer(input: Uint8Array | ArrayBuffer): ArrayBuffer {
-  if (input instanceof ArrayBuffer) return input
-  return input.buffer.slice(input.byteOffset, input.byteOffset + input.byteLength)
+/** Normalize to a view-only Uint8Array (safe for Blob/FormData & strict TS) */
+function toUint8View(input: Uint8Array | ArrayBuffer): Uint8Array {
+  return input instanceof Uint8Array
+    ? new Uint8Array(input.buffer, input.byteOffset, input.byteLength) // exact window
+    : new Uint8Array(input) // full buffer
 }
 
-/** Upload a PNG buffer to Pinata and return CID */
+/** Upload a PNG buffer to Pinata and return CID (uses Blob + Uint8Array) */
 async function pinataUploadBuffer(
   buf: Uint8Array | ArrayBuffer,
   filename: string,
   jwt: string
 ): Promise<string> {
-  const ab = toArrayBuffer(buf)
+  const u8 = toUint8View(buf)
   const fd = new FormData()
-  // Use Blob (portable in Node’s Web API typings)
-  fd.append('file', new Blob([ab], { type: 'image/png' }), filename || 'image.png')
+  fd.append('file', new Blob([u8], { type: 'image/png' }), filename || 'image.png')
 
   const res = await fetch('https://api.pinata.cloud/pinning/pinFileToIPFS', {
     method: 'POST',
@@ -93,10 +93,7 @@ export async function POST(req: NextRequest) {
       )
     }
     if (files.length < 2) {
-      return NextResponse.json(
-        { error: 'Need at least 2 images to compose.' },
-        { status: 400 }
-      )
+      return NextResponse.json({ error: 'Need at least 2 images to compose.' }, { status: 400 })
     }
 
     // 1) Normalize inputs to SIZE×SIZE PNGs

@@ -128,5 +128,5 @@ export default function GalleryPage() {
         )}
       </section>
     </main>
-  )
+  ) 
 }

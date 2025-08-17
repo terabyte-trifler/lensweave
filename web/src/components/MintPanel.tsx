@@ -8,6 +8,18 @@ import { LensWeaveCollectiveABI } from '@/abi/LensWeaveCollective'
 
 const CONTRACT = process.env.NEXT_PUBLIC_LENSWEAVE_ADDRESS as `0x${string}`
 
+function getErrMsg(e: unknown): string {
+  if (e instanceof Error) return e.message
+  if (e && typeof e === 'object' && 'message' in e && typeof (e as any).message === 'string') {
+    return (e as { message: string }).message
+  }
+  // viem/wagmi often put shortMessage on the error
+  if (e && typeof e === 'object' && 'shortMessage' in e && typeof (e as any).shortMessage === 'string') {
+    return (e as { shortMessage: string }).shortMessage
+  }
+  return 'Something went wrong'
+}
+
 export default function MintPanel({ imageIpfsUri }: { imageIpfsUri?: string }) {
   const router = useRouter()
   const { address, isConnected } = useAccount()
@@ -52,7 +64,7 @@ export default function MintPanel({ imageIpfsUri }: { imageIpfsUri?: string }) {
       setMetadataUri(data.uri)
       setSuccess('Metadata built successfully')
     } catch (e: unknown) {
-      setError(e?.message || 'Metadata build failed')
+      setError(getErrMsg(e))
     } finally {
       setBuilding(false)
     }
@@ -97,25 +109,20 @@ export default function MintPanel({ imageIpfsUri }: { imageIpfsUri?: string }) {
         address: CONTRACT,
         abi: LensWeaveCollectiveABI,
         functionName: 'mintCollective',
-        // args: [string uri, address[] creators, uint96[] sharesBps, uint96 royaltyBps, address to]
         args: [metadataUri, creators as readonly `0x${string}`[], sharesBps, BigInt(royaltyBps), to],
       })
 
-      // Notify server so gallery shows it instantly
-      try {
-        await fetch('/api/gallery/record', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ txHash }),
-        })
-      } catch {
-        /* non-fatal */
-      }
+      // Tell server to record immediately for gallery
+      void fetch('/api/gallery/record', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ txHash }),
+      }).catch(() => {})
 
       setSuccess('Mint transaction sent!')
       router.push('/gallery')
     } catch (e: unknown) {
-      setError(e?.shortMessage || e?.message || 'Mint failed')
+      setError(getErrMsg(e))
     }
   }
 

@@ -8,15 +8,30 @@ import { LensWeaveCollectiveABI } from '@/abi/LensWeaveCollective'
 
 const CONTRACT = process.env.NEXT_PUBLIC_LENSWEAVE_ADDRESS as `0x${string}`
 
+/**
+ * Helper to safely extract error messages from unknown errors.
+ */
 function getErrMsg(e: unknown): string {
   if (e instanceof Error) return e.message
-  if (e && typeof e === 'object' && 'message' in e && typeof (e as any).message === 'string') {
-    return (e as { message: string }).message
+
+  if (
+    typeof e === 'object' &&
+    e !== null &&
+    'message' in e &&
+    typeof (e as Record<string, unknown>).message === 'string'
+  ) {
+    return (e as Record<'message', string>).message
   }
-  // viem/wagmi often put shortMessage on the error
-  if (e && typeof e === 'object' && 'shortMessage' in e && typeof (e as any).shortMessage === 'string') {
-    return (e as { shortMessage: string }).shortMessage
+
+  if (
+    typeof e === 'object' &&
+    e !== null &&
+    'shortMessage' in e &&
+    typeof (e as Record<string, unknown>).shortMessage === 'string'
+  ) {
+    return (e as Record<'shortMessage', string>).shortMessage
   }
+
   return 'Something went wrong'
 }
 
@@ -32,7 +47,7 @@ export default function MintPanel({ imageIpfsUri }: { imageIpfsUri?: string }) {
   const [sharesRaw, setSharesRaw] = useState('')
   const [royaltyBps, setRoyaltyBps] = useState(500)
   const [metadataUri, setMetadataUri] = useState<string | null>(null)
-  const [originContentId, setOriginContentId] = useState<string>('') // optional
+  const [originContentId, setOriginContentId] = useState<string>('')
 
   const [building, setBuilding] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -79,13 +94,11 @@ export default function MintPanel({ imageIpfsUri }: { imageIpfsUri?: string }) {
     if (!metadataUri) return setError('Build metadata first')
     if (!CONTRACT) return setError('Contract address missing (NEXT_PUBLIC_LENSWEAVE_ADDRESS)')
 
-    // Parse creators
     const creators = creatorsRaw
       .split(/[,\s]+/)
       .map(s => s.trim())
       .filter(Boolean) as `0x${string}`[]
 
-    // Parse shares as bigint[]
     const sharesNum = sharesRaw
       .split(/[,\s]+/)
       .map(s => s.trim())
@@ -109,15 +122,18 @@ export default function MintPanel({ imageIpfsUri }: { imageIpfsUri?: string }) {
         address: CONTRACT,
         abi: LensWeaveCollectiveABI,
         functionName: 'mintCollective',
-        args: [metadataUri, creators as readonly `0x${string}`[], sharesBps, BigInt(royaltyBps), to],
+        args: [metadataUri, creators, sharesBps, BigInt(royaltyBps), to],
       })
 
-      // Tell server to record immediately for gallery
-      void fetch('/api/gallery/record', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ txHash }),
-      }).catch(() => {})
+      try {
+        await fetch('/api/gallery/record', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ txHash }),
+        })
+      } catch {
+        /* non-fatal */
+      }
 
       setSuccess('Mint transaction sent!')
       router.push('/gallery')

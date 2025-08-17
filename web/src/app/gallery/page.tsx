@@ -21,8 +21,8 @@ type PageInfo = {
 }
 
 function getErrMsg(e: unknown): string {
-  if (e && typeof e === 'object' && 'message' in e && typeof (e as any).message === 'string') {
-    return (e as { message: string }).message
+  if (e instanceof Error && typeof e.message === 'string') {
+    return e.message
   }
   return 'failed to load gallery'
 }
@@ -94,7 +94,6 @@ export default function GalleryPage() {
               className="border rounded-lg overflow-hidden shadow hover:shadow-lg transition"
             >
               {item.image ? (
-                // Consider swapping to next/image later to silence the ESLint warning & optimize LCP
                 <img
                   src={item.image}
                   alt={`Token #${item.tokenId}`}

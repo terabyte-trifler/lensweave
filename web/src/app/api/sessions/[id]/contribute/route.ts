@@ -1,15 +1,37 @@
+// src/app/api/sessions/[id]/contribute/route.ts
 export const runtime = 'nodejs'
+
 import { NextRequest, NextResponse } from 'next/server'
 import { addContribution } from '@/lib/sessionStore'
 
-export async function POST(req: NextRequest, context: { params: Promise<{ id: string }> }) {
+type ContribBody = {
+  address?: string
+  cid?: string
+  url?: string
+  displayName?: string
+}
+
+export async function POST(
+  req: NextRequest,
+  context: { params: Promise<{ id: string }> }
+) {
   try {
     const { id } = await context.params
-    const { address, cid, url, displayName } = await req.json()
-    if (!cid || !url) return NextResponse.json({ error: 'missing cid/url' }, { status: 400 })
-    const s = addContribution(id, { address, cid, url, displayName })
-    return NextResponse.json({ ok: true, session: s })
+
+    const body: ContribBody = await req.json().catch(() => ({} as ContribBody))
+    const { address, cid, url, displayName } = body
+
+    if (!cid || !url) {
+      return NextResponse.json({ error: 'missing cid/url' }, { status: 400 })
+    }
+
+    const session = addContribution(id, { address, cid, url, displayName })
+    return NextResponse.json({ ok: true, session })
   } catch (e: unknown) {
-    return NextResponse.json({ error: e?.message || 'contribute failed' }, { status: 500 })
+    const err = e as { message?: string }
+    return NextResponse.json(
+      { error: err?.message || 'contribute failed' },
+      { status: 500 }
+    )
   }
 }

@@ -1,3 +1,4 @@
+// src/app/gallery/page.tsx
 'use client'
 
 import { useEffect, useState } from 'react'
@@ -19,6 +20,13 @@ type PageInfo = {
   target: number
 }
 
+function getErrMsg(e: unknown): string {
+  if (e && typeof e === 'object' && 'message' in e && typeof (e as any).message === 'string') {
+    return (e as { message: string }).message
+  }
+  return 'failed to load gallery'
+}
+
 export default function GalleryPage() {
   const [items, setItems] = useState<OnchainItem[]>([])
   const [error, setError] = useState<string | null>(null)
@@ -27,7 +35,9 @@ export default function GalleryPage() {
   const [loadingMore, setLoadingMore] = useState(false)
 
   const load = async (cursor?: string) => {
-    const url = cursor ? `/api/gallery/onchain?cursor=${encodeURIComponent(cursor)}` : '/api/gallery/onchain'
+    const url = cursor
+      ? `/api/gallery/onchain?cursor=${encodeURIComponent(cursor)}`
+      : '/api/gallery/onchain'
     const res = await fetch(url)
     const data = await res.json()
     if (!res.ok) throw new Error(data.error || 'failed to load gallery')
@@ -37,12 +47,13 @@ export default function GalleryPage() {
   useEffect(() => {
     (async () => {
       try {
-        setLoading(true); setError(null)
+        setLoading(true)
+        setError(null)
         const data = await load()
         setItems(data.items || [])
         setPage(data.page || null)
       } catch (e: unknown) {
-        setError(e.message)
+        setError(getErrMsg(e))
       } finally {
         setLoading(false)
       }
@@ -57,7 +68,7 @@ export default function GalleryPage() {
       setItems(prev => [...prev, ...(data.items || [])])
       setPage(data.page || null)
     } catch (e: unknown) {
-      setError(e.message)
+      setError(getErrMsg(e))
     } finally {
       setLoadingMore(false)
     }
@@ -83,9 +94,10 @@ export default function GalleryPage() {
               className="border rounded-lg overflow-hidden shadow hover:shadow-lg transition"
             >
               {item.image ? (
+                // Consider swapping to next/image later to silence the ESLint warning & optimize LCP
                 <img
                   src={item.image}
-                  alt={item.tokenId}
+                  alt={`Token #${item.tokenId}`}
                   className="w-full h-64 object-cover"
                 />
               ) : (
